@@ -46,7 +46,12 @@ export async function updateSession(request: NextRequest) {
   if (user && isPublicPath) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
-    return NextResponse.redirect(url);
+    const redirectResponse = NextResponse.redirect(url);
+    // getUser() でリフレッシュされた Cookie をリダイレクト先にも引き継ぐ
+    supabaseResponse.cookies.getAll().forEach((cookie) =>
+      redirectResponse.cookies.set(cookie)
+    );
+    return redirectResponse;
   }
 
   return supabaseResponse;
