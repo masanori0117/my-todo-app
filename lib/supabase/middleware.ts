@@ -33,7 +33,9 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isPublicPath = PUBLIC_PATHS.includes(pathname);
+  // /auth/* はメール確認リンクの着地点など、未ログインで到達する必要がある
+  const isPublicPath =
+    PUBLIC_PATHS.includes(pathname) || pathname.startsWith("/auth");
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone();
