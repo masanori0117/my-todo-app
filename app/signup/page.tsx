@@ -20,7 +20,14 @@ export default function SignupPage() {
     setLoading(true);
 
     const supabase = createClient();
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        // 確認メールのリンクを /auth/confirm に着地させ、code をセッションに交換する
+        emailRedirectTo: `${window.location.origin}/auth/confirm`,
+      },
+    });
 
     if (error) {
       setError(error.message);
