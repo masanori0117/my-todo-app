@@ -1,28 +1,17 @@
-"use client";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { LogoutButton } from "@/src/components/LogoutButton";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+export default async function Home() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-export default function Home() {
-  const router = useRouter();
-  const [email, setEmail] = useState<string | null>(null);
-  const [loggingOut, setLoggingOut] = useState(false);
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
-      setEmail(data.user?.email ?? null);
-    });
-  }, []);
-
-  const handleLogout = async () => {
-    setLoggingOut(true);
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-    router.refresh();
-  };
+  // 未ログインは proxy.ts が弾くが、直接呼ばれた場合の保険
+  if (!user) {
+    redirect("/login");
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -30,15 +19,8 @@ export default function Home() {
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between px-4 py-4">
           <h1 className="text-lg font-semibold">TODO</h1>
           <div className="flex items-center gap-4">
-            {email && <span className="text-sm text-zinc-400">{email}</span>}
-            <button
-              type="button"
-              onClick={handleLogout}
-              disabled={loggingOut}
-              className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {loggingOut ? "ログアウト中..." : "ログアウト"}
-            </button>
+            <span className="text-sm text-zinc-400">{user.email}</span>
+            <LogoutButton />
           </div>
         </div>
       </header>
