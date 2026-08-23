@@ -221,9 +221,20 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => handleDelete(todo.id)}
-                      className="shrink-0 rounded-md px-2 py-1 text-sm text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-red-400"
+                      aria-label={`${todo.title} を削除`}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-red-400"
                     >
-                      削除
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        className="h-4 w-4"
+                      >
+                        <path d="M3 3l10 10M13 3L3 13" />
+                      </svg>
                     </button>
                   </li>
                 ))}
