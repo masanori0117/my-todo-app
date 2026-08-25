@@ -35,6 +35,14 @@ export default function SignupPage() {
       return;
     }
 
+    // 登録済みメールアドレスの場合、Supabase はアドレスの存在を秘匿するため
+    // エラーではなく identities が空のダミーユーザーを返す（メールは送信されない）
+    if (data.user && data.user.identities?.length === 0) {
+      setError("このメールアドレスは登録済みです。ログインしてください。");
+      setLoading(false);
+      return;
+    }
+
     // メール確認が有効な場合はセッションが作成されないため、案内を表示する
     if (!data.session) {
       setMessage(
