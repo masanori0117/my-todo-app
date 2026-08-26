@@ -24,7 +24,8 @@ const DUE_BADGE_CLASS = {
   completed: "border-zinc-700 bg-zinc-800 text-zinc-500",
   overdue: "border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20",
   soon: "border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20",
-  normal: "border-zinc-700 bg-zinc-800 text-zinc-400 hover:bg-zinc-700",
+  normal:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20",
 } as const;
 
 // 未ログイン時（セッション切れなど）は proxy がリダイレクトするため、
