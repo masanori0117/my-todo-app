@@ -1,42 +1,15 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
-import type { Todo } from "@/generated/prisma/client";
-import type {
-  ErrorResponse,
-  TodoItem,
-  TodoResponse,
-} from "@/app/api/todos/route";
-
-// ---- API の型定義（画面側は import type で参照する） ----
-export type UpdateTodoRequest = { isCompleted: boolean };
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const getAuthUser = async () => {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
-};
-
-const toTodoItem = (todo: Todo): TodoItem => ({
-  id: todo.id,
-  title: todo.title,
-  isCompleted: todo.isCompleted,
-  createdAt: todo.createdAt.toISOString(),
-});
-
-const unauthorized = () =>
-  NextResponse.json<ErrorResponse>({ error: "認証が必要です" }, { status: 401 });
-
-const notFound = () =>
-  NextResponse.json<ErrorResponse>(
-    { error: "TODO が見つかりません" },
-    { status: 404 }
-  );
+import {
+  UUID_PATTERN,
+  getAuthUser,
+  isValidDueDateString,
+  notFound,
+  toDbDate,
+  toTodoItem,
+  unauthorized,
+} from "@/lib/todos";
+import type { ErrorResponse, TodoResponse } from "@/lib/todos";
 
 export async function PATCH(
   request: Request,
@@ -58,14 +31,44 @@ export async function PATCH(
     );
   }
 
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    !("isCompleted" in body) ||
-    typeof body.isCompleted !== "boolean"
-  ) {
+  if (typeof body !== "object" || body === null) {
     return NextResponse.json<ErrorResponse>(
-      { error: "isCompleted は真偽値で指定してください" },
+      { error: "リクエストボディが不正です" },
+      { status: 400 }
+    );
+  }
+
+  const data: { isCompleted?: boolean; dueDate?: Date | null } = {};
+
+  if ("isCompleted" in body) {
+    if (typeof body.isCompleted !== "boolean") {
+      return NextResponse.json<ErrorResponse>(
+        { error: "isCompleted は真偽値で指定してください" },
+        { status: 400 }
+      );
+    }
+    data.isCompleted = body.isCompleted;
+  }
+
+  if ("dueDate" in body) {
+    if (body.dueDate === null) {
+      data.dueDate = null;
+    } else if (
+      typeof body.dueDate === "string" &&
+      isValidDueDateString(body.dueDate)
+    ) {
+      data.dueDate = toDbDate(body.dueDate);
+    } else {
+      return NextResponse.json<ErrorResponse>(
+        { error: "dueDate は YYYY-MM-DD 形式または null で指定してください" },
+        { status: 400 }
+      );
+    }
+  }
+
+  if (Object.keys(data).length === 0) {
+    return NextResponse.json<ErrorResponse>(
+      { error: "更新する項目がありません" },
       { status: 400 }
     );
   }
@@ -73,7 +76,7 @@ export async function PATCH(
   // userId で絞ることで、他ユーザーの TODO は更新対象にならない
   const { count } = await prisma.todo.updateMany({
     where: { id, userId: user.id },
-    data: { isCompleted: body.isCompleted },
+    data,
   });
   if (count === 0) return notFound();
 

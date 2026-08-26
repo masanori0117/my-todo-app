@@ -1,39 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { createClient } from "@/lib/supabase/server";
-import type { Todo } from "@/generated/prisma/client";
-
-// ---- API の型定義（画面側は import type で参照する） ----
-export type TodoItem = {
-  id: string;
-  title: string;
-  isCompleted: boolean;
-  /** ISO 8601 文字列 */
-  createdAt: string;
-};
-
-export type TodosResponse = { todos: TodoItem[] };
-export type CreateTodoRequest = { title: string };
-export type TodoResponse = { todo: TodoItem };
-export type ErrorResponse = { error: string };
-
-const getAuthUser = async () => {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
-};
-
-const toTodoItem = (todo: Todo): TodoItem => ({
-  id: todo.id,
-  title: todo.title,
-  isCompleted: todo.isCompleted,
-  createdAt: todo.createdAt.toISOString(),
-});
-
-const unauthorized = () =>
-  NextResponse.json<ErrorResponse>({ error: "認証が必要です" }, { status: 401 });
+import {
+  getAuthUser,
+  isValidDueDateString,
+  toDbDate,
+  toTodoItem,
+  unauthorized,
+} from "@/lib/todos";
+import type { ErrorResponse, TodoResponse, TodosResponse } from "@/lib/todos";
 
 export async function GET() {
   const user = await getAuthUser();
@@ -41,7 +15,11 @@ export async function GET() {
 
   const todos = await prisma.todo.findMany({
     where: { userId: user.id },
-    orderBy: { createdAt: "desc" },
+    orderBy: [
+      { isCompleted: "asc" },
+      { dueDate: { sort: "asc", nulls: "last" } },
+      { createdAt: "desc" },
+    ],
   });
 
   return NextResponse.json<TodosResponse>({ todos: todos.map(toTodoItem) });
@@ -76,8 +54,29 @@ export async function POST(request: Request) {
     );
   }
 
+  const rawDueDate =
+    typeof body === "object" && body !== null && "dueDate" in body
+      ? body.dueDate
+      : null;
+
+  let dueDate: Date | null = null;
+  if (typeof rawDueDate === "string" && rawDueDate !== "") {
+    if (!isValidDueDateString(rawDueDate)) {
+      return NextResponse.json<ErrorResponse>(
+        { error: "期限は YYYY-MM-DD 形式で指定してください" },
+        { status: 400 }
+      );
+    }
+    dueDate = toDbDate(rawDueDate);
+  } else if (rawDueDate !== null && rawDueDate !== undefined && rawDueDate !== "") {
+    return NextResponse.json<ErrorResponse>(
+      { error: "期限は YYYY-MM-DD 形式で指定してください" },
+      { status: 400 }
+    );
+  }
+
   const todo = await prisma.todo.create({
-    data: { userId: user.id, title },
+    data: { userId: user.id, title, dueDate },
   });
 
   return NextResponse.json<TodoResponse>(
