@@ -4,19 +4,29 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { LogoutButton } from "@/src/components/LogoutButton";
+import { formatDueDate, getDueStatus, sortTodos } from "@/lib/todoDate";
 import type {
   CreateTodoRequest,
   ErrorResponse,
   TodoItem,
   TodoResponse,
   TodosResponse,
-} from "@/app/api/todos/route";
-import type { UpdateTodoRequest } from "@/app/api/todos/[id]/route";
+  UpdateTodoRequest,
+} from "@/lib/todos";
 
 const DEFAULT_ERROR_MESSAGE = "処理に失敗しました。もう一度お試しください。";
 
 const INPUT_CLASS =
   "w-full rounded-md border border-zinc-700 bg-zinc-800 px-3 py-2 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+
+// 期限バッジの色: 完了済みは常に控えめ、未完了は期限の状態で警告色を変える
+const DUE_BADGE_CLASS = {
+  completed: "border-zinc-700 bg-zinc-800 text-zinc-500",
+  overdue: "border-red-500/40 bg-red-500/10 text-red-400 hover:bg-red-500/20",
+  soon: "border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20",
+  normal:
+    "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20",
+} as const;
 
 // 未ログイン時（セッション切れなど）は proxy がリダイレクトするため、
 // fetch の結果がリダイレクト済み or 401 ならログイン画面へ戻す
@@ -35,6 +45,8 @@ export default function Home() {
   const router = useRouter();
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [title, setTitle] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [editingDueDateId, setEditingDueDateId] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -77,7 +89,10 @@ export default function Home() {
     setError(null);
     setSubmitting(true);
     try {
-      const body: CreateTodoRequest = { title: trimmed };
+      const body: CreateTodoRequest = {
+        title: trimmed,
+        dueDate: dueDate === "" ? null : dueDate,
+      };
       const res = await fetch("/api/todos", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -92,8 +107,9 @@ export default function Home() {
         return;
       }
       const data = (await res.json()) as TodoResponse;
-      setTodos((prev) => [data.todo, ...prev]);
+      setTodos((prev) => sortTodos([data.todo, ...prev]));
       setTitle("");
+      setDueDate("");
     } catch {
       setError(DEFAULT_ERROR_MESSAGE);
     } finally {
@@ -120,7 +136,36 @@ export default function Home() {
       }
       const data = (await res.json()) as TodoResponse;
       setTodos((prev) =>
-        prev.map((t) => (t.id === data.todo.id ? data.todo : t))
+        sortTodos(prev.map((t) => (t.id === data.todo.id ? data.todo : t)))
+      );
+    } catch {
+      setError(DEFAULT_ERROR_MESSAGE);
+    }
+  };
+
+  const handleDueDateChange = async (todo: TodoItem, value: string) => {
+    setError(null);
+    setEditingDueDateId(null);
+    const next = value === "" ? null : value;
+    if (next === todo.dueDate) return;
+    try {
+      const body: UpdateTodoRequest = { dueDate: next };
+      const res = await fetch(`/api/todos/${todo.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (isUnauthorized(res)) {
+        router.push("/login");
+        return;
+      }
+      if (!res.ok) {
+        setError(await readErrorMessage(res));
+        return;
+      }
+      const data = (await res.json()) as TodoResponse;
+      setTodos((prev) =>
+        sortTodos(prev.map((t) => (t.id === data.todo.id ? data.todo : t)))
       );
     } catch {
       setError(DEFAULT_ERROR_MESSAGE);
@@ -143,6 +188,11 @@ export default function Home() {
     } catch {
       setError(DEFAULT_ERROR_MESSAGE);
     }
+  };
+
+  const dueBadgeClass = (todo: TodoItem) => {
+    if (todo.isCompleted || !todo.dueDate) return DUE_BADGE_CLASS.completed;
+    return DUE_BADGE_CLASS[getDueStatus(todo.dueDate)];
   };
 
   return (
@@ -175,6 +225,16 @@ export default function Home() {
               onChange={(e) => setTitle(e.target.value)}
               placeholder="新しい TODO を入力"
               className={`${INPUT_CLASS} flex-1`}
+            />
+            <label htmlFor="new-todo-due" className="sr-only">
+              期限
+            </label>
+            <input
+              id="new-todo-due"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className={`${INPUT_CLASS} sm:w-44 [color-scheme:dark]`}
             />
             <button
               type="submit"
@@ -218,6 +278,52 @@ export default function Home() {
                     >
                       {todo.title}
                     </span>
+                    {editingDueDateId === todo.id ? (
+                      <span className="flex shrink-0 items-center gap-1">
+                        <input
+                          type="date"
+                          autoFocus
+                          defaultValue={todo.dueDate ?? ""}
+                          onChange={(e) =>
+                            handleDueDateChange(todo, e.target.value)
+                          }
+                          onBlur={() => setEditingDueDateId(null)}
+                          aria-label={`${todo.title} の期限`}
+                          className="rounded-md border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-100 [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                        {todo.dueDate && (
+                          <button
+                            type="button"
+                            // input の onBlur より先に発火させてクリック操作を成立させる
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => handleDueDateChange(todo, "")}
+                            className="rounded-md px-2 py-1 text-xs text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-red-400"
+                          >
+                            クリア
+                          </button>
+                        )}
+                      </span>
+                    ) : todo.dueDate ? (
+                      <button
+                        type="button"
+                        onClick={() => setEditingDueDateId(todo.id)}
+                        aria-label={`${todo.title} の期限を編集`}
+                        className={`shrink-0 rounded-full border px-2 py-0.5 text-xs transition-colors ${dueBadgeClass(
+                          todo
+                        )}`}
+                      >
+                        {formatDueDate(todo.dueDate)}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setEditingDueDateId(todo.id)}
+                        aria-label={`${todo.title} に期限を設定`}
+                        className="shrink-0 rounded-full border border-transparent px-2 py-0.5 text-xs text-zinc-600 transition-colors hover:border-zinc-700 hover:text-zinc-400"
+                      >
+                        + 期限
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => handleDelete(todo.id)}
